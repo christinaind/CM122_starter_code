@@ -4,6 +4,8 @@ from os.path import join
 import zipfile
 import argparse
 
+
+# this function takes in the test_aligner.py file  
 def generate_consensus(aligned_fn):
     """
     :param aligned_fn: The filename of the saved output of the basic aligner
@@ -54,7 +56,7 @@ def process_lines(genome_lines):
             consensus_lines.append(line[6:])
     ref = consensus_lines[0]
     reads = consensus_lines[1:]
-    consensus_string = consensus(ref, reads)
+    consensus_string = consensus(ref, reads) # get consensus string for every 100 bases (for each chunk in the test_aligner.py file)
     diff_string = diff(ref, consensus_string)
     snps = snp_calls(ref, consensus_string, line_index)
     output_lines[2:2] = ['Cons: ' + consensus_string]
@@ -62,6 +64,7 @@ def process_lines(genome_lines):
     return snps, output_lines
 
 
+# this function determines the consensus string for each chunk in the test_aligner.py file
 def consensus(ref, reads):
     """
     :param ref: reference string
@@ -93,6 +96,7 @@ def diff(s1, s2):
     return ''.join(chars)
 
 
+# this function returns the SNPs that are outputted to the test_pileup.py file
 def snp_calls(ref_string, consensus_string, start_index):
     """
     :param ref_string: A piece of the reference string
@@ -102,8 +106,17 @@ def snp_calls(ref_string, consensus_string, start_index):
     """
     snps = []
     for i in range(len(ref_string)):
-        if ref_string[i] != consensus_string[i]:
-            snps.append([ref_string[i], consensus_string[i], start_index + i])
+        if ref_string[i] != consensus_string[i]: # potential SNP
+            ## my code start
+            count = 0
+            for j in range(1, 5):  # check if next 4 bases after potential SNP are matches - if so then it is a SNP
+                if i < len(ref_string) - 4:
+                    if ref_string[i + j] == consensus_string[i + j]:
+                            count += 1
+            
+            if count == 4:
+                ## my code end
+                snps.append([ref_string[i], consensus_string[i], start_index + i])
     return snps
 
 
@@ -128,7 +141,7 @@ if __name__ == "__main__":
     snps, lines = generate_consensus(input_fn)
     output_fn = args.output_file
     zip_fn = output_fn + '.zip'
-    with open(output_fn, 'w') as output_file:
+    with open(output_fn, 'w') as output_file:   # this chunk of code creates the file test_pileup.py
         header = '>' + args.output_header + '\n>SNP\n'
         output_file.write(header)
         for x in snps:
