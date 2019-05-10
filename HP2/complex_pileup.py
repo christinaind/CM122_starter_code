@@ -33,8 +33,10 @@ def generate_pileup(aligned_fn):
             if len(line) > 0 and all(x == '-' for x in line):  # The different pieces of the genome are set off
                 # with lines of all dashes '--------'
                 new_changes = process_lines(lines_to_process)
+                #if len(new_changes) > .7 * len(lines_to_process[-3]): new_changes = [] # see if we can eliminate changes that have been found excessively
                 lines_to_process = []
                 changes += new_changes
+                
                 # print time.clock() - start, 'seconds'
             else:
                 lines_to_process.append(line)
@@ -166,17 +168,22 @@ def edit_distance_matrix(ref, donor):
     # print len(ref), len(donor)
     # print output_matrix
     # This is a very fast and memory-efficient way to allocate a matrix
+    print('Start')
+    print(ref)
+    print(donor)
+    print('end')
     for i in range(len(ref)):
-        output_matrix[i, 0] = i
+        output_matrix[i, 0] = 0
     for j in range(len(donor)):
-        output_matrix[0, j] = j
+        output_matrix[0, j] = 0
     for j in range(1, len(donor)):
         for i in range(1, len(ref)):  # Big opportunities for improvement right here.
-            deletion = output_matrix[i - 1, j] + 1
-            insertion = output_matrix[i, j - 1] + 1
-            identity = output_matrix[i - 1, j - 1] if ref[i] == donor[j] else np.inf
-            substitution = output_matrix[i - 1, j - 1] + 1 if ref[i] != donor[j] else np.inf
-            output_matrix[i, j] = min(insertion, deletion, identity, substitution)
+            deletion = output_matrix[i - 1, j]    # to get to i,j come from left - cost = -1 (or set to zero)
+            insertion = output_matrix[i, j - 1] # to get to i, j come from top - cost = -1 (or set to zero)
+            identity = output_matrix[i - 1, j - 1] + 5 if ref[i] == donor[j] else -np.inf # to get to i, j diagnonally - if the donor and ref are the same, the cost is zero cost = + 1 - also, should we keep np.inf?
+            substitution = output_matrix[i - 1, j - 1] + 2 if ref[i] != donor[j] else -np.inf # to get to i, j diagonally - cost = -1
+        
+            output_matrix[i, j] = max(insertion, deletion, identity, substitution,0) # change this to max() 
     return output_matrix
 
 
@@ -193,50 +200,79 @@ def identify_changes(ref, donor, offset):
     :return: SNPs, Inserstions, and Deletions
     """
     # print offset
+ 
+    #ref = "PRETTY"
+    #donor = "PRTTEIN"
     ref = '${}'.format(ref)
     donor = '${}'.format(donor)
+
     edit_matrix = edit_distance_matrix(ref=ref, donor=donor)
+   
     #print(edit_matrix)
-    current_row = len(ref) - 1
-    current_column = len(donor) - 1
+    current_row = len(ref) - 1 # start at last row
+    current_column = len(donor) - 1 # start at last column
     changes = []
-    while current_row > 0 or current_column > 0:
+    while current_row > 0 or current_column > 0: # backtrack through the matrix until just before the top left corner
+        
+        # iterate back to top left corner 
         if current_row == 0:
-            pvs_row = -np.inf
+            pvs_row = -np.inf 
         else:
-            pvs_row = current_row - 1
+            pvs_row = current_row - 1 # decrement the current row index 
 
         if current_column == 0:
             pvs_column = -np.inf
         else:
-            pvs_column = current_column - 1
-
+            pvs_column = current_column - 1 # decrement the current column index
+            
+            
+        # get distance for each change
         try:
             insertion_dist = edit_matrix[current_row, pvs_column]
+            if insertion_dist != edit_matrix[current_row, current_column]:
+                insertion_dist = -np.inf
         except IndexError:
-            insertion_dist = np.inf
-
+            insertion_dist = -np.inf 
+            
+        
         try:
             deletion_dist = edit_matrix[pvs_row, current_column]
+            if deletion_dist != edit_matrix[current_row, current_column]:
+                deletion_dist = -np.inf
         except IndexError:
-            deletion_dist = np.inf
+            deletion_dist = -np.inf
 
         try:
             if ref[current_row] == donor[current_column]:
-                identity_dist = edit_matrix[pvs_row, pvs_column]
+                identity_dist = edit_matrix[pvs_row, pvs_column] 
+                if edit_matrix[pvs_row, pvs_column] != edit_matrix[current_row, current_column] - 5:
+                    identity_dist = -np.inf
             else:
-                identity_dist = np.inf
+                identity_dist = -np.inf # identity and substitution distances should not both be -inf
 
             if ref[current_row] != donor[current_column]:
                 substitution_dist = edit_matrix[pvs_row, pvs_column]
+                if edit_matrix[pvs_row, pvs_column] != edit_matrix[current_row, current_column] - 2:
+                    substitution_dist = -np.inf
             else:
-                substitution_dist = np.inf
-        except (TypeError, IndexError) as e:
-            identity_dist = np.inf
-            substitution_dist = np.inf
+                substitution_dist = -np.inf
+        except IndexError:
+        #except (TypeError, IndexError) as e: # we keep getting a type error or index error here
+            identity_dist = -np.inf
+            substitution_dist = -np.inf
 
-        min_dist = min(insertion_dist, deletion_dist, identity_dist, substitution_dist)
-
+ 
+        
+        #print(ref[current_row], donor[current_column])
+        #print(insertion_dist, deletion_dist, identity_dist, substitution_dist)
+        min_dist = max(insertion_dist, deletion_dist, identity_dist, substitution_dist) # need to change this if modify above
+        #max_dist = max(insertion_dist, deletion_dist, identity_dist, substitution_dist) 
+        
+        # delete this, it makes all the values SNPs, no insertions nor deletions
+       # if substitution_dist != -np.inf: max_dist = substitution_dist
+       # if identity_dist != -np.inf: max_dist = max(identity_dist, substitution_dist)
+        
+       
         ref_index = current_row + offset - 1
         if min_dist == identity_dist:
             current_row = pvs_row
@@ -260,7 +296,8 @@ def identify_changes(ref, donor, offset):
         else:
             raise ValueError
     changes = sorted(changes, key=lambda change: change[-1])
-    #print(str(changes))
+
+   # print(str(changes))
     return changes
 
 
